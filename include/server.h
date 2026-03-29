@@ -6,7 +6,7 @@
 
 #define PORT 8080
 #define BUFFER_SIZE 1024
-#define MAX_REQUEST_SIZE 8192
+#define MAX_REQUEST_SIZE 10485760  // 10MB for larger files
 
 typedef struct {
     int socket_fd;

@@ -194,3 +194,24 @@ char* get_user_files(sqlite3 *db, int user_id) {
     sqlite3_finalize(stmt);
     return json;
 }
+
+int get_filename(sqlite3 *db, int file_id, char *filename, size_t filename_size) {
+    const char *sql = "SELECT filename FROM files WHERE id = ?;";
+    sqlite3_stmt *stmt;
+    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    if (rc != SQLITE_OK) {
+        return 0;
+    }
+
+    sqlite3_bind_int(stmt, 1, file_id);
+
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        const char *fn = (const char *)sqlite3_column_text(stmt, 0);
+        strncpy(filename, fn, filename_size - 1);
+        filename[filename_size - 1] = '\0';
+    }
+    sqlite3_finalize(stmt);
+
+    return rc == SQLITE_ROW;
+}

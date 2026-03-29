@@ -63,6 +63,11 @@ int handle_file_download(int client_fd, const char *path, sqlite3 *db) {
         return 0;
     }
 
+    char filename[256];
+    if (!get_filename(db, file_id, filename, sizeof(filename))) {
+        strcpy(filename, "downloaded_file");
+    }
+
     FILE *file = fopen(filepath, "rb");
     if (!file) {
         const char *error = "HTTP/1.1 404 Not Found\r\n\r\nFile not found";
@@ -70,7 +75,8 @@ int handle_file_download(int client_fd, const char *path, sqlite3 *db) {
         return 0;
     }
 
-    const char *header = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\r\n";
+    char header[1024];
+    sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"%s\"\r\n\r\n", filename);
     write(client_fd, header, strlen(header));
 
     char buffer[BUFFER_SIZE];

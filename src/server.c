@@ -202,6 +202,11 @@ void handle_shared_download(int client_fd, const char *path, sqlite3 *db) {
         return;
     }
 
+    // Get filename from path (simple way, or query db)
+    char *filename = strrchr(filepath, '/');
+    if (filename) filename++;
+    else filename = "shared_file";
+
     FILE *file = fopen(filepath, "rb");
     if (!file) {
         const char *error = "HTTP/1.1 404 Not Found\r\n\r\nFile not found";
@@ -209,7 +214,8 @@ void handle_shared_download(int client_fd, const char *path, sqlite3 *db) {
         return;
     }
 
-    const char *header = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\r\n";
+    char header[1024];
+    sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"%s\"\r\n\r\n", filename);
     write(client_fd, header, strlen(header));
 
     char buffer[BUFFER_SIZE];
