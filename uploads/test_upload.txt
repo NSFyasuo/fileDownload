@@ -1,5 +1,0 @@
---------------------------OkFQtRDSpV5OkR327aaA71
-Content-Disposition: form-data; name="file"; filename="test_upload.txt"
-Content-Type: text/plain
-
-testcontent
