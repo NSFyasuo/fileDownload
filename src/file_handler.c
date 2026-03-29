@@ -7,12 +7,12 @@
 #include "file_handler.h"
 #include "db.h"
 
-int handle_file_upload(int client_fd, const char *request, sqlite3 *db, int user_id) {
+int handle_file_upload(int client_fd, const char *request, size_t request_len, sqlite3 *db, int user_id) {
     char filename[256];
     char *file_data;
     size_t file_size;
 
-    if (!parse_multipart(request, filename, &file_data, &file_size)) {
+    if (!parse_multipart(request, request_len, filename, &file_data, &file_size)) {
         const char *error = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid upload";
         write(client_fd, error, strlen(error));
         return 0;
@@ -89,46 +89,56 @@ int handle_file_download(int client_fd, const char *path, sqlite3 *db) {
     return 1;
 }
 
-int parse_multipart(const char *request, char *filename, char **file_data, size_t *file_size) {
-    // Find boundary
-    const char *boundary_start = strstr(request, "boundary=");
+int parse_multipart(const char *request, size_t request_len, char *filename, char **file_data, size_t *file_size) {
+    // Find boundary in headers
+    const char *boundary_key = "boundary=";
+    const char *boundary_start = memmem(request, request_len, boundary_key, strlen(boundary_key));
     if (!boundary_start) return 0;
-    boundary_start += 9;
+    boundary_start += strlen(boundary_key);
+
+    // boundary ends at CRLF or end
+    const char *boundary_end = memchr(boundary_start, '\r', request_len - (boundary_start - request));
+    if (!boundary_end) boundary_end = request + request_len;
+    size_t boundary_len = boundary_end - boundary_start;
+    if (boundary_len == 0 || boundary_len >= 250) return 0;
+
     char boundary[256];
-    sscanf(boundary_start, "%255[^;\r\n]", boundary);
+    memcpy(boundary, boundary_start, boundary_len);
+    boundary[boundary_len] = '\0';
 
     char boundary_delim[300];
-    sprintf(boundary_delim, "--%s", boundary);
+    int n = snprintf(boundary_delim, sizeof(boundary_delim), "--%s", boundary);
+    if (n <= 0) return 0;
 
-    // Find start of data
-    const char *data_start = strstr(request, "\r\n\r\n");
+    // Find headers/body separator
+    const char *data_start = memmem(request, request_len, "\r\n\r\n", 4);
     if (!data_start) return 0;
     data_start += 4;
 
-    // Find filename
-    const char *fn = strstr(data_start, "filename=\"");
+    // Find filename in part header (still in header region before file data)
+    const char *filename_key = "filename=\"";
+    const char *fn = memmem(request, request_len, filename_key, strlen(filename_key));
     if (!fn) return 0;
-    fn += 10;
-    const char *fn_end = strchr(fn, '"');
+    fn += strlen(filename_key);
+    const char *fn_end = memchr(fn, '"', request_len - (fn - request));
     if (!fn_end) return 0;
     size_t fn_len = fn_end - fn;
-    strncpy(filename, fn, fn_len);
+    if (fn_len == 0 || fn_len >= 255) return 0;
+    memcpy(filename, fn, fn_len);
     filename[fn_len] = '\0';
 
-    // Find file data start
-    const char *file_start = strstr(fn_end, "\r\n\r\n");
-    if (!file_start) return 0;
-    file_start += 4;
-
-    // Find end of file data
+    // Find boundary that marks end of file content
     char end_boundary[300];
-    sprintf(end_boundary, "\r\n--%s--", boundary);
-    const char *file_end = strstr(file_start, end_boundary);
+    n = snprintf(end_boundary, sizeof(end_boundary), "\r\n--%s", boundary);
+    if (n <= 0) return 0;
+
+    const char *file_end = memmem(data_start, request_len - (data_start - request), end_boundary, strlen(end_boundary));
     if (!file_end) return 0;
 
-    *file_size = file_end - file_start;
+    *file_size = file_end - data_start;
     *file_data = malloc(*file_size);
-    memcpy(*file_data, file_start, *file_size);
+    if (!*file_data) return 0;
+    memcpy(*file_data, data_start, *file_size);
 
     return 1;
 }

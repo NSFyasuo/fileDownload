@@ -68,17 +68,23 @@ void start_server(Server *server) {
 }
 
 void handle_request(int client_fd) {
-    char buffer[MAX_REQUEST_SIZE];
-    ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
+    char *buffer = malloc(MAX_REQUEST_SIZE);
+    if (!buffer) {
+        const char *error = "HTTP/1.1 500 Internal Server Error\r\n\r\nMemory allocation failed";
+        write(client_fd, error, strlen(error));
+        return;
+    }
+    ssize_t bytes_read = read(client_fd, buffer, MAX_REQUEST_SIZE - 1);
     if (bytes_read < 0) {
         perror("Read failed");
+        free(buffer);
         return;
     }
     buffer[bytes_read] = '\0';
 
     // Parse request line
     char method[16], path[256], version[16];
-    sscanf(buffer, "%s %s %s", method, path, version);
+    sscanf(buffer, "%15s %255s %15s", method, path, version);
 
     // Extract token from headers
     char *auth_header = strstr(buffer, "Authorization: Bearer ");
@@ -93,9 +99,10 @@ void handle_request(int client_fd) {
         if (user_id == 0) {
             const char *error = "HTTP/1.1 401 Unauthorized\r\n\r\nPlease login";
             write(client_fd, error, strlen(error));
+            free(buffer);
             return;
         }
-        handle_file_upload(client_fd, buffer, db, user_id);
+        handle_file_upload(client_fd, buffer, bytes_read, db, user_id);
     } else if (strcmp(method, "GET") == 0 && strstr(path, "/download")) {
         handle_file_download(client_fd, path, db);
     } else if (strcmp(method, "POST") == 0 && strstr(path, "/login")) {
@@ -106,6 +113,7 @@ void handle_request(int client_fd) {
         if (user_id == 0) {
             const char *error = "HTTP/1.1 401 Unauthorized\r\n\r\nPlease login";
             write(client_fd, error, strlen(error));
+            free(buffer);
             return;
         }
         handle_share(client_fd, path, db, user_id);
@@ -115,6 +123,7 @@ void handle_request(int client_fd) {
         if (user_id == 0) {
             const char *error = "HTTP/1.1 401 Unauthorized\r\n\r\nPlease login";
             write(client_fd, error, strlen(error));
+            free(buffer);
             return;
         }
         handle_files(client_fd, db, user_id);
@@ -122,12 +131,19 @@ void handle_request(int client_fd) {
         // Serve static files or default response
         serve_static(client_fd, path);
     }
+    free(buffer);
 }
 
 void handle_login(int client_fd, const char *request, sqlite3 *db) {
     // Parse username and password from request body
+    char *body = strstr(request, "\r\n\r\n");
+    if (!body) {
+        const char *error = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid request";
+        write(client_fd, error, strlen(error));
+        return;
+    }
     char username[256], password[256];
-    sscanf(strstr(request, "\r\n\r\n") + 4, "username=%255[^&]&password=%255s", username, password);
+    sscanf(body + 4, "username=%255[^&]&password=%255s", username, password);
 
     Session session;
     if (authenticate_user(db, username, password, &session)) {
@@ -141,8 +157,14 @@ void handle_login(int client_fd, const char *request, sqlite3 *db) {
 }
 
 void handle_register(int client_fd, const char *request, sqlite3 *db) {
+    char *body = strstr(request, "\r\n\r\n");
+    if (!body) {
+        const char *error = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid request";
+        write(client_fd, error, strlen(error));
+        return;
+    }
     char username[256], password[256];
-    sscanf(strstr(request, "\r\n\r\n") + 4, "username=%255[^&]&password=%255s", username, password);
+    sscanf(body + 4, "username=%255[^&]&password=%255s", username, password);
 
     if (insert_user(db, username, password)) {
         const char *response = "HTTP/1.1 201 Created\r\n\r\nUser registered";
@@ -241,25 +263,44 @@ void handle_files(int client_fd, sqlite3 *db, int user_id) {
 }
 
 void serve_static(int client_fd, const char *path) {
+    char file_path[512];
     if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
-        FILE *file = fopen("web/index.html", "r");
-        if (file) {
-            const char *header = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n";
-            write(client_fd, header, strlen(header));
-            char buffer[1024];
-            size_t bytes;
-            while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-                write(client_fd, buffer, bytes);
-            }
-            fclose(file);
-        } else {
-            const char *error = "HTTP/1.1 404 Not Found\r\n\r\n";
-            write(client_fd, error, strlen(error));
-        }
+        strcpy(file_path, "web/index.html");
+    } else if (strcmp(path, "/register.html") == 0) {
+        strcpy(file_path, "web/register.html");
+    } else if (strncmp(path, "/", 1) == 0) {
+        // map /xyz to web/xyz
+        snprintf(file_path, sizeof(file_path), "web%s", path);
     } else {
-        const char *response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>File Share Server</h1></body></html>";
-        write(client_fd, response, strlen(response));
+        strcpy(file_path, "web/index.html");
     }
+
+    FILE *file = fopen(file_path, "rb");
+    if (!file) {
+        const char *error = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found";
+        write(client_fd, error, strlen(error));
+        return;
+    }
+
+    const char *content_type = "application/octet-stream";
+    if (strstr(file_path, ".html")) content_type = "text/html";
+    else if (strstr(file_path, ".css")) content_type = "text/css";
+    else if (strstr(file_path, ".js")) content_type = "application/javascript";
+    else if (strstr(file_path, ".json")) content_type = "application/json";
+    else if (strstr(file_path, ".png")) content_type = "image/png";
+    else if (strstr(file_path, ".jpg") || strstr(file_path, ".jpeg")) content_type = "image/jpeg";
+
+    char header[256];
+    sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n\r\n", content_type);
+    write(client_fd, header, strlen(header));
+
+    char buffer[1024];
+    size_t bytes;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        write(client_fd, buffer, bytes);
+    }
+
+    fclose(file);
 }
 
 int main() {

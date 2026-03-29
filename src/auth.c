@@ -19,10 +19,13 @@ int authenticate_user(sqlite3 *db, const char *username, const char *password, S
 
 int validate_session(sqlite3 *db, const char *token, int *user_id) {
     // Simple validation, parse token
-    char *underscore = strchr(token, '_');
+    char temp_token[256];
+    strncpy(temp_token, token, sizeof(temp_token) - 1);
+    temp_token[sizeof(temp_token) - 1] = '\0';
+    char *underscore = strchr(temp_token, '_');
     if (!underscore) return 0;
     *underscore = '\0';
-    *user_id = atoi(token);
+    *user_id = atoi(temp_token);
     // In real app, check against stored sessions
     return *user_id > 0;
 }

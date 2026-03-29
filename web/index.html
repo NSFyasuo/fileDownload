@@ -114,13 +114,10 @@
             <form id="loginForm">
                 <input type="text" name="username" placeholder="用户名" required>
                 <input type="password" name="password" placeholder="密码" required>
-                <button type="submit">登录</button>
-            </form>
-            <h2>注册</h2>
-            <form id="registerForm">
-                <input type="text" name="username" placeholder="用户名" required>
-                <input type="password" name="password" placeholder="密码" required>
-                <button type="submit">注册</button>
+                <div class="form-buttons">
+                    <button type="submit">登录</button>
+                    <button type="button" onclick="window.location.href='register.html'">注册</button>
+                </div>
             </form>
         </div>
 
@@ -164,20 +161,6 @@
                 alert('登录成功');
             } else {
                 alert('登录失败');
-            }
-        });
-
-        document.getElementById('registerForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const response = await fetch('/register', {
-                method: 'POST',
-                body: new URLSearchParams(formData)
-            });
-            if (response.ok) {
-                alert('注册成功，请登录');
-            } else {
-                alert('注册失败');
             }
         });
 
