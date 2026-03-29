@@ -127,6 +127,14 @@ void handle_request(int client_fd) {
             return;
         }
         handle_files(client_fd, db, user_id);
+    } else if (strcmp(method, "DELETE") == 0 && strstr(path, "/file")) {
+        if (user_id == 0) {
+            const char *error = "HTTP/1.1 401 Unauthorized\r\n\r\nPlease login";
+            write(client_fd, error, strlen(error));
+            free(buffer);
+            return;
+        }
+        handle_delete_file(client_fd, path, db, user_id);
     } else {
         // Serve static files or default response
         serve_static(client_fd, path);
@@ -258,6 +266,37 @@ void handle_files(int client_fd, sqlite3 *db, int user_id) {
         free(json);
     } else {
         const char *error = "HTTP/1.1 500 Internal Server Error\r\n\r\nFailed to get files";
+        write(client_fd, error, strlen(error));
+    }
+}
+
+void handle_delete_file(int client_fd, const char *path, sqlite3 *db, int user_id) {
+    char *query = strchr(path, '?');
+    if (!query) {
+        const char *error = "HTTP/1.1 400 Bad Request\r\n\r\nMissing file id";
+        write(client_fd, error, strlen(error));
+        return;
+    }
+
+    char *id_str = strstr(query, "id=");
+    if (!id_str) {
+        const char *error = "HTTP/1.1 400 Bad Request\r\n\r\nMissing file id";
+        write(client_fd, error, strlen(error));
+        return;
+    }
+
+    int file_id = atoi(id_str + 3);
+    if (file_id <= 0) {
+        const char *error = "HTTP/1.1 400 Bad Request\r\n\r\nInvalid file id";
+        write(client_fd, error, strlen(error));
+        return;
+    }
+
+    if (delete_file(db, file_id, user_id)) {
+        const char *response = "HTTP/1.1 200 OK\r\n\r\nFile deleted";
+        write(client_fd, response, strlen(response));
+    } else {
+        const char *error = "HTTP/1.1 404 Not Found\r\n\r\nFile not found or not permitted";
         write(client_fd, error, strlen(error));
     }
 }

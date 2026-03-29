@@ -195,6 +195,7 @@
                                     <div>
                                         <button onclick="shareFile(${file.id})">分享</button>
                                         <button onclick="downloadFile(${file.id})">下载</button>
+                                        <button onclick="deleteFile(${file.id})">删除</button>
                                     </div>`;
                     list.appendChild(li);
                 });
@@ -222,6 +223,19 @@
                 });
             } else {
                 alert('分享失败');
+            }
+        }
+
+        async function deleteFile(id) {
+            const response = await fetch(`/file?id=${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (response.ok) {
+                alert('文件已删除');
+                loadFiles();
+            } else {
+                alert('删除失败');
             }
         }
     </script>

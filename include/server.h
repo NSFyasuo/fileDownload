@@ -21,6 +21,7 @@ void handle_register(int client_fd, const char *request, sqlite3 *db);
 void handle_share(int client_fd, const char *path, sqlite3 *db, int user_id);
 void handle_shared_download(int client_fd, const char *path, sqlite3 *db);
 void handle_files(int client_fd, sqlite3 *db, int user_id);
+void handle_delete_file(int client_fd, const char *path, sqlite3 *db, int user_id);
 void serve_static(int client_fd, const char *path);
 int handle_file_upload(int client_fd, const char *request, size_t request_len, sqlite3 *db, int user_id);
 

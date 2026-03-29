@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include "db.h"
 
 sqlite3* init_db() {
@@ -124,6 +125,55 @@ int get_file_path(sqlite3 *db, int file_id, char *path, size_t path_size) {
     sqlite3_finalize(stmt);
 
     return rc == SQLITE_ROW;
+}
+
+int delete_file(sqlite3 *db, int file_id, int user_id) {
+    // Ensure file belongs to user
+    const char *path_sql = "SELECT path FROM files WHERE id = ? AND user_id = ?;";
+    sqlite3_stmt *stmt;
+    int rc = sqlite3_prepare_v2(db, path_sql, -1, &stmt, 0);
+    if (rc != SQLITE_OK) {
+        return 0;
+    }
+
+    sqlite3_bind_int(stmt, 1, file_id);
+    sqlite3_bind_int(stmt, 2, user_id);
+
+    rc = sqlite3_step(stmt);
+    if (rc != SQLITE_ROW) {
+        sqlite3_finalize(stmt);
+        return 0;
+    }
+
+    const char *path = (const char *)sqlite3_column_text(stmt, 0);
+    char filepath[512];
+    strncpy(filepath, path, sizeof(filepath) - 1);
+    filepath[sizeof(filepath) - 1] = '\0';
+    sqlite3_finalize(stmt);
+
+    // Remove share links first
+    const char *share_sql = "DELETE FROM shares WHERE file_id = ?;";
+    rc = sqlite3_prepare_v2(db, share_sql, -1, &stmt, 0);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, file_id);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    // Delete file record
+    const char *del_sql = "DELETE FROM files WHERE id = ?;";
+    rc = sqlite3_prepare_v2(db, del_sql, -1, &stmt, 0);
+    if (rc != SQLITE_OK) {
+        return 0;
+    }
+    sqlite3_bind_int(stmt, 1, file_id);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    // Remove filesystem copy
+    unlink(filepath);
+
+    return rc == SQLITE_DONE;
 }
 
 int create_share_link(sqlite3 *db, int file_id, char *link, size_t link_size) {
